@@ -31,7 +31,7 @@ Topic Legend:
 * [e]: External Script
 
 
-* `mqtt-packgen.py` [Np]: This file generates packets for overhead-free testing. It complies to the latest OASIS-approved version of MQTT as specified [here](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718009). There is no plans, of course, to implement the whole protocol. Just the parts we need for testing. Please see the [Packet Generation](#packet-generation) section to find out how it works. It is not a proper implementation, keep that in mind.
+* `mqtt-packetgen.py` [Np]: This file generates packets for overhead-free testing. It complies to the latest OASIS-approved version of MQTT as specified [here](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718009). There is no plans, of course, to implement the whole protocol. Just the parts we need for testing. Please see the [Packet Generation](#packet-generation) section to find out how it works. It is not a proper implementation, keep that in mind.
 
 
 * `mqtt-payloadgen.py` [1u]: For generating payloads for use with both ad-hoc static packets and Paho and other clients. It will generate a payload based on an evaluative expression. See [Payload Generation](#payload-generation) for more info.
