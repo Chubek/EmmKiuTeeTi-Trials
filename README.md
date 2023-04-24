@@ -12,23 +12,23 @@ Files in this repo [at the moment] are:
 
 Status Legend (not all of these maybe used): 
 
-* [N]: Near-Complete
-* [*]: Revision Number *
-* [O]: Ongoing
-* [X]: Deprecated
-* [S]: Started
-* [A]: Abandoned
-* [C]: Complete
-* [P]: Planned
+* \[N\]: Near-Complete
+* \[\*\]: Revision Number *
+* \[O]: Ongoing
+* \[X\]: Deprecated
+* \[S\]: Started
+* \[A\]: Abandoned
+* \[C\]: Complete
+* \[P\]: Planned
 
 Topic Legend:
 
-* [t]: Test-Related
-* [p]: Protocol-Related
-* [r]: Report File
-* [d]: Profiler Dump
-* [u]: Utility Script
-* [e]: External Script
+* \[t\]: Test-Related
+* \[p\]: Protocol-Related
+* \[r\]: Report File
+* \[d\]: Profiler Dump
+* \[u\]: Utility Script
+* \[e\]: External Script
 
 
 * `mqtt-packetgen.py` [Np]: This file generates packets for overhead-free testing. It complies to the latest OASIS-approved version of MQTT as specified [here](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718009). There is no plans, of course, to implement the whole protocol. Just the parts we need for testing. Please see the [Packet Generation](#packet-generation) section to find out how it works. It is not a proper implementation, keep that in mind.
