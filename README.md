@@ -19,6 +19,7 @@ Status Legend (not all of these maybe used):
 * [S]: Started
 * [A]: Abandoned
 * [C]: Complete
+* [P]: Planned
 
 Topic Legend:
 
@@ -36,5 +37,9 @@ Topic Legend:
 * `mqtt-payloadgen.py` [1u]: For generating payloads for use with both ad-hoc static packets and Paho and other clients. It will generate a payload based on an evaluative expression. See [Payload Generation](#payload-generation) for more info.
 
 
-* `zinteger.py` [Ce] : I had written ZInteger beforehand. It is basically a dynamically-generated wrapper for ctypes integers in Python. You can find the main Gist in my profile.
+* `zinteger.py` [Ce] : ZInteger is a script I have written some time ago. It is basically a dynamically-generated wrapper for ctypes integers in Python. You can find the main Gist in my profile.
 
+* `gofuzz-fmq-nov.go` [Pt]: Overhead-free fuzz test of FlashMQ in Go using Goroutines. This file is in the planning stages.
+
+
+* `ccfuzz-fmq-nov.c` [Pt]: Overhead-free fuzz test of FlashMQ in C using POSIX Threads. This file is in the planning stages.
