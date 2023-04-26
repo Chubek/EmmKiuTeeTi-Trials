@@ -157,14 +157,14 @@ def __generate_binary_dunders(_="BINARY_DUNDERS"):
                 if instance_check == SELF_INSTANCE:
                     res = op(self.__maxand__(0), other.__maxand__(0))
                 elif instance_check == TYPE_INSTANCE:
-                    res = op(self.__maxand__(0), self.__maxand__(other.value))
+                    res = op(self.__maxand__(0), self.__maxand__(other.value, on_self=False))
                 elif instance_check == INTG_INSTANCE:
-                    res = op(self.__maxand__(0), self.__maxand__(other))
+                    res = op(self.__maxand__(0), self.__maxand__(other, on_self=False))
                 else:
                     raise TypeError(
                         f"Ilegal operation {op.__name__} between {self.clsname} and {other.__class__.__name__}")
 
-                return self.clstype(res)
+                return self.clstype(res) if type(res) != bool else res
 
             dunderfn.__dict__['op'] = binary_op
             dunderfn.__name__ = binary_dunder
@@ -192,9 +192,9 @@ def __generate_inplace_dunders(_="INPLACE_DUNDERS"):
                 if instance_check == SELF_INSTANCE:
                     res = op(self.__maxand__(0), other.__maxand__(0))
                 elif instance_check == TYPE_INSTANCE:
-                    res = op(self.__maxand__(0), self.__maxand__(other.value))
+                    res = op(self.__maxand__(0), self.__maxand__(other.value, on_self=False))
                 elif instance_check == INTG_INSTANCE:
-                    res = op(self.__maxand__(0), self.__maxand__(other))
+                    res = op(self.__maxand__(0), self.__maxand__(other, on_self=False))
                 else:
                     raise TypeError(
                         f"Ilegal operation {op.__name__} between {self.clsname} and {other.__class__.__name__}")
@@ -212,6 +212,24 @@ def __generate_inplace_dunders(_="INPLACE_DUNDERS"):
             inplace_dunder, inplace_op)
 
     return inplace_dunderfuncs
+
+
+def __byte_zinteger(self, msb_leftmost=True) -> bytearray:
+    if self.min < 0:
+        raise OverflowError("Negative numbers cannot be decomposed to bytes")
+    value = self.val
+    decomposed_bytes = bytearray([])
+    shrn = 0
+    while True:
+        value >>= shrn
+        if value == 0:
+            break
+        byte = value & 255
+        decomposed_bytes += bytearray([byte])
+        shrn += 8
+    if msb_leftmost:
+        decomposed_bytes.reverse()
+    return bytes(decomposed_bytes)
 
 
 def __maxd_zinteger(self, val: int, on_self=True) -> int:
@@ -366,6 +384,7 @@ def __zinteger(cls: type):
     this_geti = copy(__geti_zinteger)
     this_seti = copy(__seti_zinteger)
     this_maxd = copy(__maxd_zinteger)
+    this_byte = copy(__byte_zinteger)
 
     this_docs = __docs_zinteger(ident_tyy, ident_slf, ident_min, ident_max)
 
@@ -384,6 +403,7 @@ def __zinteger(cls: type):
             "__str__": this_strn,
             "__init__": this_init,
             "__repr__": this_repr,
+            "__bytes__": this_byte,
             "__maxand__": this_maxd,
             "__format__": this_frmt,
             "__getattr__": this_gtvl,
@@ -405,6 +425,7 @@ def __zinteger(cls: type):
                 (cls.__set__, "__set__"),
                 (cls.__init__, "__init__"),
                 (cls.__repr__, "__repr__"),
+                (cls.__bytes__, "__bytes__"),
                 (cls.__format__, "__format__"),
                 (cls.__maxand__, "__maxand__"),
                 (cls.__instancecheck__, "__instancecheck__"),
