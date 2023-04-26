@@ -1,8 +1,10 @@
 from zinteger import ZUint8 as U8, ZUint32 as U32, ZUint16 as U16, ZUint64 as U64
 from random import choices
 from time import time_ns
+from string import ascii_letters
 
 PROTOCOL_NAME = b'\x00\x04MQTT'
+LEN_ASCII_LETTERS = 52
 
 class MQTTHeaderCodes:
 	PubD0Q0R0 = 48 #0b110000
@@ -18,6 +20,7 @@ class MQTTHeaderCodes:
 	PubD1Q2R0 = 60 #0b111100
 	PubD1Q2R1 = 61 #0b111101
 	ConnectNF = 16 #0b010000
+	DisconnNF = 224 #0b11100000
 
 class MQTTVHeaderCodes:
 	ConnProtocolLvl4 = 4  #0b00000100
@@ -124,10 +127,10 @@ def hex_escape_packet(packet: bytearray) -> str:
 
 
 def pack_fixed_header(tyflag: int, remaining_len: U32) -> bytearray:
-	fixed_header_packed = U64(tyflag) | (U64(remaining_len.val) << 8)
-	fixed_header_bytes = fixed_header_packed.val.to_bytes(5, byteorder="little")
-	zero_index = fixed_header_bytes.index(0)
-	return fixed_header_bytes[:zero_index]
+	remaining_len_bytes = remaining_len.val.to_bytes(4, byteorder="little")
+	remaining_len_bytes = remaining_len_bytes[:remaining_len_bytes.index(0)]
+	tyflag_bytes = tyflag.to_bytes(1, byteorder="little")
+	return tyflag_bytes + remaining_len_bytes
 
 
 def encode_packet_len(length: int) -> U32:
@@ -140,7 +143,6 @@ def encode_packet_len(length: int) -> U32:
 			enc_byte |= 128
 		enc_double_word |= U32(enc_byte.val) << shl_amount
 		shl_amount += 8
-
 	return enc_double_word
 
 
@@ -150,14 +152,12 @@ def generate_packet_id(mod: int) -> U16:
 	more_significant_byte = ((time_ns() << 4) + time_ns()) % mod
 	return U16(less_significant_byte | (more_significant_byte << 8))
 
-def generate_client_id(mod: int) -> bytearray:
-	byte_1 = ((time_ns() << 2) + time_ns()) % mod
-	byte_2 = ((time_ns() << 2) + time_ns()) % mod
-	byte_3 = ((time_ns() << 2) + time_ns()) % mod
-	byte_4 = ((time_ns() << 2) + time_ns()) % mod
-	length = 4
-	length = length.to_bytes(2, byteorder="big")
-	return length + bytearray([byte_1, byte_3, byte_2, byte_4])
+def generate_client_id(length=4) -> bytearray:
+	client_id = ""
+	for _ in range(length):
+		idx = ((time_ns() << 2) + time_ns()) % LEN_ASCII_LETTERS
+		client_id += ascii_letters[idx] 
+	return client_id.encode('utf8')
 
 def encode_utf8_string(string: str | bytes) -> tuple[bytearray, int]:
 	strlen = U16(len(string))
@@ -182,9 +182,11 @@ class MQTTControlVHeaderCompose:
 
 	@staticmethod
 	def compose_connect_varheader(keepalive=3600, flags=MQTTVHeaderCodes.ConnC1P0R0W0Q0U0):
-		name_lvl_flag = PROTOCOL_NAME + bytearray([MQTTVHeaderCodes.ConnProtocolLvl4, flags]) 
+		lvl_bytes = MQTTVHeaderCodes.ConnProtocolLvl4.to_bytes(1, byteorder="little")
+		flags_bytes = flags.to_bytes(1, byteorder="little")
 		keepalive_bytes = keepalive.to_bytes(2, byteorder="big")
-		return name_lvl_flag + keepalive_bytes
+		composed = PROTOCOL_NAME + lvl_bytes + flags_bytes + keepalive_bytes
+		return composed, len(composed)
 
 
 class MQTTControlPacketCompose:
@@ -195,17 +197,23 @@ class MQTTControlPacketCompose:
 		remaining_length = encode_packet_len(messg_len + vhead_len)
 		fixed_header_packed = pack_fixed_header(header, remaining_length)
 		final_packet = fixed_header_packed + vhead_composed + messg_composed
-		return final_packet
+		return bytearray(final_packet)
 
 	@staticmethod
 	def compose_connect_packet(body=None, header=MQTTHeaderCodes.ConnectNF):
-		body = generate_client_id(255)
-		vhead_composed = MQTTControlVHeaderCompose.compose_connect_varheader()
-		remaining_len = encode_packet_len(len(vhead_composed) + len(body))
+		client_id, cid_len = encode_utf8_string(generate_client_id())
+		vhead_composed, vhead_len = MQTTControlVHeaderCompose.compose_connect_varheader()
+		remaining_len = encode_packet_len(vhead_len + cid_len)
 		fixed_header_packed = pack_fixed_header(header, remaining_len)
-		final_packet = fixed_header_packed + vhead_composed + body
-		return final_packet
+		final_packet = fixed_header_packed + vhead_composed + client_id
+		return bytearray(final_packet)
+
+	@staticmethod
+	def compose_disconnect_packet() -> bytearray:
+		return bytearray(MQTTHeaderCodes.DisconnNF.to_bytes(1, byteorder="little") + b"\0")
 
 
-
+print(MQTTControlPacketCompose.compose_publish_packet("A/B", "{'zz': 1}"))
+print(MQTTControlPacketCompose.compose_connect_packet())
+print(MQTTControlPacketCompose.compose_disconnect_packet())
 
