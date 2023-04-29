@@ -7,11 +7,14 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <stdint.h>
 
 extern int seek_zero(void *address, size_t size_struct, size_t for_n);
 extern size_t sum_array(void *array, size_t size_struct, size_t for_n);
 
 #define PPUBACK_PACKLEN 4
+#define PPUBACK_FAILURE 'F'
+#define PPUBACK_SUCCESS 'S' 
 
 #define CONNECT_MARKER 1
 #define CONNACK_MARKER 2
@@ -69,6 +72,33 @@ extern size_t sum_array(void *array, size_t size_struct, size_t for_n);
 	} while(1)
 
 
+#define CHECK_FLAG_AGAINST(CURRFLAG, MUSTBE) if (CURRFLAG != MUSTBE) return
+
+typedef enum MQTTStatusFlag {
+	CONTX_MQTTFUZZTST_INIT_DONE,
+	PARSE_PUBPACKLENS_READ_FAIL,
+	PARSE_PUBPACKLENS_ZERO_FAIL,
+	PARSE_CONNECTPACK_MARK_FAIL,
+	PARSE_CONNECTPACK_READ_FAIL,
+	PARSE_CONNACKPACK_MARK_FAIL,
+	PARSE_CONNACKPACK_READ_FAIL,
+	PARSE_DISCONNPACK_MARK_FAIL,
+	PARSE_DISCONNPACK_READ_FAIL,
+	PARSE_PUBLISHPACK_MARK_FAIL,
+	PARSE_PUBLISHPACK_READ_FAIL,
+	BROKR_CONNECTSOCK_OPEN_FAIL,
+	BROKR_CONNECTSOCK_CONN_FAIL,
+	BROKR_CONNECTPACK_SEND_FAIL,
+	BROKR_CONNACKPACK_RECV_FAIL,
+	FUZZT_PUBLISHPACK_SEND_FAIL,
+	PARSE_ALLMQTTPACK_READ_DONE,
+	BROKR_CONNECTSOCK_CONN_DONE,
+	BROKR_CONNECTPACK_ESTB_DONE,
+	BROKR_CONNECTSOCK_SHUT_DONE,
+	BROKR_DISCONNPACK_SEND_DONE,
+	FUZZT_PUBLISHPACK_SEND_DONE,
+} mqtt_fuzzstatf_e;
+
 typedef size_t mqtt_packetsize_t;
 typedef char *mqtt_packet_p;
 typedef mqtt_packetsize_t *mqtt_packetsize_p;
@@ -80,18 +110,8 @@ typedef int mqtt_brokerport_t;
 
 typedef char *mqtt_fuzzifile_t;
 typedef char *mqtt_fuzzofile_t;
-
-typedef enum MQTTFuzzContextStatus {
-	CtxInitialized = 0,
-	ParseFailPackSize = 1,
-	ParseFailPakcZero = 6,
-	ParseFailConnectPack = 2,
-	ParseFailConnackpack = 3,
-	ParseFailDisconnectPack = 4,
-	ParseFailPublishPack = 5,
-	ParseFailPublishFlag = 7;
-} mqtt_fuzzcxstt_e;
-
+typedef uint16_t mqtt_fuzzflags_t;
+typedef pid_t mqtt_fuzzprocf_t;
 
 typedef struct MQTTfuzzpacks {
 	mqtt_packetsize_t pubpacks_num;
@@ -100,8 +120,8 @@ typedef struct MQTTfuzzpacks {
 	mqtt_packetsize_t connackpack_size;
 	mqtt_packetsize_t dconnpack_size;
 	mqtt_packetsize_p pubpacks_sizes;
+	mqtt_packet_p puback_results;
 	mqtt_packet_p publish_packets;
-	mqtt_packet_p puback_packets;
 	mqtt_packet_p connect_packet;
 	mqtt_packet_p connack_packet;
 	mqtt_packet_p disconnect_packet;
@@ -114,7 +134,9 @@ typedef struct MQTTFuzzConn {
 } mqtt_fuzzconnt_s;
 
 typedef struct MQTTFuzzTestContext {
-	mqtt_fuzzcxstt_e statusn;
+	mqtt_fuzzstatf_e statusf;
+	mqtt_fuzzprocf_t procfid;
+	mqtt_fuzzflags_t statflg;
 	mqtt_fuzzifile_t inpfile;
 	mqtt_fuzzofile_t outfile;
 	mqtt_fuzzpacks_s packets;
@@ -122,15 +144,17 @@ typedef struct MQTTFuzzTestContext {
 } mqtt_fuzztstcx_s;
 
 
-
-
-
+mqtt_fuzzofile_t format_mqtt_outfile(mqtt_fuzzprocf_t procid, char *outdir) {
+	char *result;
+	asprintf(&result, "%s/mqttfuzz_result_%d.bin", outdir, procid);
+	return result;
+}
 
 mqtt_fuzzpacks_s new_mqtt_fuzzpacks(mqtt_packsize_t numpackets) {
 	return (mqtt_fuzzpacks_s){
 		.pubpacks_num = numpackets,
 		.pubpacks_sizes = calloc(numpackets, sizeof(size_t)),
-		.puback_packets = calloc(numpackets * PPUBACK_PACKLEN, sizeof(char)),
+		.puback_results = calloc(numpackets, sizeof(char)),
 		.pubpacks_sizes_sum = 0, 
 		.connpack_size = 0,
 		.connack_size = 0,
@@ -150,17 +174,20 @@ mqtt_fuzzconnt_s new_mqtt_fuzzconnt(mqtt_brokersock_t broker_addr, mqtt_brokerpo
 	};
 }
 
-mqtt_fuzztstcx_s new_mqtt_fuzztstcx(mqtt_brokersock_t broker_addr, mqtt_brokerport_t broker_port, mqtt_packsize_t numpackets, mqtt_fuzzifile_t inpfile, mqtt_fuzzofile_t outfile) {
+mqtt_fuzztstcx_s new_mqtt_fuzztstcx(mqtt_fuzzprocf_t procfid, mqtt_brokersock_t broker_addr, mqtt_brokerport_t broker_port, mqtt_packsize_t numpackets, mqtt_fuzzifile_t inpfile, char *outdir) {
 	return (mqtt_fuzztstcx) {
-		.statusn = CtxInitialized,
+		.statusf = CONTX_MQTTFUZZTST_INIT_DONE,
+		.statflg = MAX_UINT16,
 		.inpfile = inpfile,
-		.outfile = outfile,
+		.outfile = format_mqtt_outdir(procfid, outdir),
 		.packets = new_mqtt_fuzzpacks(numpacks),
 		.connctx = neq_mqtt_fuzzconnt(broker_addr, broker_port),
 	};
 }
 
 void mqtt_context_parse_inpfile(mqtt_fuzztstcx_s *context_object) {
+	CHECK_FLAG_AGAINST(context_object->statusf, CONTX_MQTTFUZZTST_INIT_DONE);
+
 	size_t retsize = 0, read_index = 0, curr_packet_size = 0; 
 	int has_zero = 0;
 	char cursor = 0, marker = 0;
@@ -170,38 +197,38 @@ void mqtt_context_parse_inpfile(mqtt_fuzztstcx_s *context_object) {
 
 	retsize = fread(packets_object->pubpacks_sizes, sizeof(mqtt_packetsize_t), packets_object->pubpacks_num, pfile);
 	if (retsize != packets_object->pubpacks_num) {
-		context_object->statusn = PFAILPACKSIZE;
+		context_object->statflg >>= PARSE_FAIL_PACKSIZE;
 		goto outer_return;
 	}
 
 	has_zero = seek_zero((void *)packets_object->pubpacks_sizes, sizeof(mqtt_packetsize_t), packets_object->pubpacks_num);
 	if (has_zero) {
-		context_object->statusn = PFAILPACKZERO;
+		context_object->statflg >>= PARSE_F;
 		goto outer_return;
 	}
 
 	void read_connpacks(char cursor, char marker_check, mqtt_packetsize_t *size, mqtt_packet_p *packet, FILE *inpfile, mqtt_fuzzcxstt_e *stflag, int ecode) {
 		int marker = cursor & 3
 		if (marker != marker_check) {
-			*stflag = ecode;
+			*stflag &= ecode;
 			goto outer_return;
 		}
-		*size = (cursor & 63) << 4;
+		*size = (cursor & 63) << 2;
 		*packet = calloc(*size, sizeof(char));
 		fread(*packet, sizeof(char), *size, inpfile);
 	}
 
 	cursor = fgetc(pfile);
-	read_connpacks(cursor, CONNECT_MARKER, &packets_object->connpack_size, &packets_object->connect_packet, &context_obj->statusn, PFAILPACKCONN);
+	read_connpacks(cursor, CONNECT_MARKER, &packets_object->connpack_size, &packets_object->connect_packet, &context_obj->statflg, PFAILPACKCONN);
 	cursor = fgetc(pfile);
-	read_connpacks(cursor, CONNACK_MARKER, &packets_object->connack_size, &packets_object->connack_packet, &context_obj->statusn, PFAILPACKCONNACK);
+	read_connpacks(cursor, CONNACK_MARKER, &packets_object->connack_size, &packets_object->connack_packet, &context_obj->statflg, PFAILPACKCONNACK);
 	cursor = fgetc(pfile);
-	read_connpacks(cursor, DISCONN_MARKER, &packets_object->dconna_size, &packets_object->disconnect_packet, &context_obj->statusn, PFAILPACKDCONN);
+	read_connpacks(cursor, DISCONN_MARKER, &packets_object->dconna_size, &packets_object->disconnect_packet, &context_obj->statflg, PFAILPACKDCONN);
 	
 	cursor = fgetc(pfile);
 	marker = cursor;
 	if (marker != PPACK_MARKER) {
-		context_obj->statusn = ParseFailPublishFlag;
+		context_obj->statflg = ParseFailPublishFlag;
 		goto outer_return;
 	}
 
@@ -212,20 +239,34 @@ void mqtt_context_parse_inpfile(mqtt_fuzztstcx_s *context_object) {
 		curr_packet_size = packets_object->pubpacks_sizes[i];
 		retsize = fread(&packets_object->publish_packets[read_index], sizeof(char), curr_packet_size, pfile);
 		if (retsize != curr_packet_size) {
-			context_object->statusn = PFAILPACKPUB;
+			context_object->statflg >>= PFAILPACKPUB;
 			goto outer_return;
 		}		
 		read_index += curr_packet_size;
 	}
 
-context_object->statusn = PSUCCESS;
-
 outer_return:
 	fclose(pfile);
+	context_object->statflg <<= PSUCCESS;
 	return;
 }
 
+void mqtt_context_write_outfile(mqtt_fuzztstcx_s *context_object) {
+	CHECK_FLAG_AGAINST(context_object->statusf, BROKR_CONNECTSOCK_SHUT_DONE);
+
+	mqtt_fuzzpacket_s *packets_obj = &context_object->packets;
+	FILE *ofile = fopen(context_object->outfile, "w");
+	size_t result = fwrite(packets_obj->puback_results, sizeof(char), packets_obj->pubpacks_num, ofile);
+	if (result != 0) {
+		context_object->statflg >>= WFAIL;
+		return;
+	}
+	context_object->statflg <<= WSUCCESS;
+}
+
 void mqtt_context_connect_socket(mqtt_fuzztstcx_s *context_object, int quit_on_error) {
+	CHECK_FLAG_AGAINST(context_object->statusf, PARSE_ALLMQTTPACK_READ_DONE);
+
 	struct sockaddr_in conn_addr;
 	int syscall_ret = 0;
 	mqtt_fzzconncx_s *connect_obj = context_object->connctx;
@@ -236,8 +277,8 @@ void mqtt_context_connect_socket(mqtt_fuzztstcx_s *context_object, int quit_on_e
 	inet_aton(connect_object->port, &conn_addr.sin_addr);
 
 	if ((syscall_ret = socket(AF_INET, SOCK_STREAM, 0) != 0) {
-		context_object->statusn = CFAILSOCK;
-		goto outer_ret;
+		context_object->statflg >>= CFAILSOCK;
+		return;
 	}
 	connect_object->sock = syscall_ret;
 
@@ -246,69 +287,65 @@ void mqtt_context_connect_socket(mqtt_fuzztstcx_s *context_object, int quit_on_e
 		if (quit_on_error) {
 			CONN_RES_ERROR(quit_on_error);
 		}
-		context_object->statusn = CFAILCONN;
-		goto outer_ret;
+		context_object->statflg >>= CFAILCONN;
+		return;
 	}
 
-	context_object->statusn = CSUCCESS;
-
-outer_ret:
-	return;	
+	context_object->statflg <<= CSUCCESS;
 }
 
 
 void mqtt_context_connect_broker(mqtt_fuzztstcx_s *context_object, int retries, int acknowledge) {
+	CHECK_FLAG_AGAINST(context_object->statusf, BROKR_CONNECTSOCK_CONN_DONE);
+
 	mqtt_fuzzpackets_s *packets_object = &context_object->packets;
+	mqtt_fuzzconntcx_s *connect_object = &context_object->connect;
 	size_t return_size  = 0;
 	
 	do {
-		return_size  = send(broker_socket, packets_object->connect_packet, packets_object->connpack_size, 0);
+		return_size  = send(connect_object->sock, packets_object->connect_packet, packets_object->connpack_size, 0);
 	} while (return_size  != packets_object->connack_size || --retries >= 0);
 
-	if (return_size  == packets_object->connack_size && acknowledge) {
-		char acknowledgement[packets_object->connack_size];
-		memset(acknowledgement, 0, packets_object->connack_size);
-		
-		return_size = 0;
-		do {
-			return_size = recv(broker_socket, acknowledgement, packets_object->connack_size, 0);
-		} while (return_size == packets_object->connack_size);
+	if (return_size  == packets_object->connect_size) {
+		if (acknowledge) {
+			char acknowledgement[packets_object->connack_size];
+			memset(acknowledgement, 0, packets_object->connack_size);
+			
+			return_size = 0;
+			do {
+				return_size = recv(broker_socket, acknowledgement, packets_object->connack_size, 0);
+			} while (return_size == packets_object->connack_size);
 
-		if (strncmp(packets_object->connack_packet, acknowledgement, packets_object->connack_size)) {
-			context_object->statusn = BFAILACK;
-			goto outer_ret;
-		}
-	} else {
-		context_object->statusn = BESTABLISH;
+			if (strncmp(packets_object->connack_packet, acknowledgement, packets_object->connack_size)) {
+				goto set_fail;
+			}
+		} 
+
+		context_object->statflg <<= BSUCCESS;
+		return;
+	} else if (return_size != packets_object->connack_size) {
+		goto set_fail;
 	}
 
-	context_obj->statusn = BSUCCESS;
-
-outer_ret:
-	return;
+set_fail:
+	context_object->statflg >>= BFAILACK;
 }
 
 
 void mqtt_context_disconnect_broker(mqtt_fuzztstcx_s *context_object, int retries) {
+	CHECK_FLAG_AGAINST(context_object->statusf, BROKR_CONNECTSOCK_CONN_DONE);
+
 	mqtt_fuzzpackets_s *packets_object = &context_object->packets;
-	size_t return_size  = 0;
+	mqtt_fuzzconntcx_s *connect_object = &context_object->connect;
+	size_t return_size = 0;
 	
 	do {
-		return_size  = send(broker_socket, packets_object->disconnect_packet, packets_object->dconnpack_size, 0);
+		return_size  = send(connect_object->sock, packets_object->disconnect_packet, packets_object->dconnpack_size, 0);
 	} while (return_size  != packets_object->connack_size || --retries >= 0);
-
-	if (return_size == packets_object->dconnpack_size) {
-		context_obj->statusn = DCONNFAIL;
-		return;
-	}
-
-	packets_object->statusn = DCONNSUCCESS;
-	return;
 }
 
 void mqtt_context_close_socket(mqtt_fuzztstcx_s *context_object) {
 	close(context_object->connctx.sock);
-	context_object->statusn = SCLOSED;
 	return;
 }
 
@@ -319,6 +356,60 @@ void mqtt_context_deallocate_memory(mqtt_fuzztstcx_s *context_object) {
 	free(context_object->packets->connect_packet);
 	free(context_object->packets->connack_packet);
 	free(context_object->packets->disconnect_packet);
-	return 0;
+	free(context_object->outfile);
 }
 
+void mqtt_context_publish_packets(mqtt_fuzztstcx_s *context_object, int retries, int acknowledge) {
+	mqtt_fuzzpackets_s *packets_object = &context_object->packets;
+	mqtt_fuzzconntcx_s *connect_object = &context_object->connect;
+	size_t return_size  = 0, current_size = 0;
+	int read_index = 0, current_retries = 0;
+
+	for (size_t i = 0; i < packets_obj->pubpacks_num; i++) {
+		current_size = packets_obj->pubpacks_sizes[i];
+		current_retries = retries;
+
+		do {
+			return_size = send(connect_object->socket, &packets_obj->publish_packets[read_index], current_size, 0);
+		} while (return_size == PPUBACK_PACKLEN || --current_retries >= 0);
+
+		read_index += current_size;
+
+		if (return_size == PPUBACK_PACKLEN) {
+			return_size = 0;
+			current_retries = retries;
+
+			do {
+				return_size = recv(connect_object->socket, acknowledgement, PPUBACK_PACKLEN, 0);
+			} while (return_size == PPUBACK_PACKLEN || --current_retries >= 0);
+
+
+			if (acknowledge) {
+				char acknowledgemeent[PPUBACK_PACKLET];
+				if (strncmp(acknowledgement, packets_object->puback_packet, PPUBACK_PACKLEN)) {
+					goto set_false;
+				}
+			}
+
+			packets_object->puback_results[i] = PPUBACK_SUCCESS;
+		} 			
+
+set_false:
+		packets_obj->puback_results[i] = PPUBACK_FAILURE;
+	}
+
+	context_object->statflg <<= FSUCCESS;
+}
+
+
+void mqtt_context_fuzztest(mqtt_fuzztstcx_s *context_object, int quit_on_error, int retries, int acknowledge) {
+	mqtt_context_parse_inpfile(context_object);
+	mqtt_context_connect_socket(context_object, quit_on_error);
+	mqtt_context_connect_broker(context_object, retries, acknowledge);
+	mqtt_context_publish_packets(context_object, retries, acknowledge);
+	mqtt_context_disconnect_broker(context_object, retries);
+	mqtt_context_close_socket(context_object);
+	mqtt_context_write_outfile(context_object)
+	mqtt_context_deallocate_memory(context_object);
+	exit(0);
+}
