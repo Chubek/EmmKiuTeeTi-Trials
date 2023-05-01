@@ -1,6 +1,8 @@
 #define SYSCNR_read $0
+#define SYSCNR_write $1
 #define SYSCNR_open $2
 #define SYSCNR_close $3
+#define SYSCNR_lseek $8
 #define SYSCNR_mmap $9
 #define SYSCNR_munmap $11
 
@@ -20,7 +22,7 @@
 	.global convert_hostaddr_to_network_int
 	.global read_single_packet_from_file
 	.global free_single_packet_bytes
-
+	.global memorymap_file_shared
 
 .text
 	read_from_file:
@@ -283,3 +285,34 @@
 
 		#undef PACK_PTR
 		#undef PACK_TMP
+
+	memorymap_file_shared:
+		#define FILE_DSC %rdi
+		#define MMAP_LEN %rsi
+		#define MMAP_OFS %rdx
+		#define FLAG_SHR $1
+		#define PROT_RWX $7
+		#define NULL_MEM $0
+		#define MMAP_ERR $-1
+
+		xor SYSC_NRR, SYSC_NRR
+		xor SYSC_AG3, SYSC_AG3
+		xor SYSC_AG4, SYSC_AG4
+		xor SYSC_AG5, SYSC_AG5
+
+		mov PROT_RWX, SYSC_AG2
+		mov FLAG_SHR, SYSC_AG3
+		mov FILE_DSC, SYSC_AG4
+		mov MMAP_OFS, SYSC_AG5
+		xor SYSC_AG0, SYSC_AG0
+		mov SYSCNR_mmap, SYSC_NRR
+		syscall
+
+		test SYSC_NRR, SYSC_NRR
+		js 2f
+	1:
+		ret
+	2:
+		xor SYSC_NRR, SYSC_NRR
+		mov MMAP_ERR, SYSC_NRR
+		mov 1b
