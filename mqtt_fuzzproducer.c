@@ -14,7 +14,7 @@
 #define ERROR_READ_PACK 2
 
 typedef unsigned short mqtt_packettype_t;
-typedef unsigned int mqtt_packetlen_t;
+typedef unsigned long mqtt_packetlen_t;
 typedef unsigned long mqtt_packetnum_t;
 typedef char *mqtt_packetbytes_t;
 
@@ -38,6 +38,9 @@ extern void close_file_desc(int fd);
 extern void exit_from_app(int code);
 extern void error_out_from_app(int code);
 extern int convert_hostaddr_to_network_int(char *host, unsigned int *ipv4);
+extern int read_single_packet_from_file(int fd, mqtt_packet_s *packet);
+extern void free_single_packet_bytes(mqtt_packet_s *packet);
+
 /*
 int read_single_packet(int fd, mqtt_packet_s *packet) {
     int readres = 0;
@@ -80,7 +83,6 @@ mqtt_packetcoll_s parse_mqtt_packet_file(char *filepath) {
 }   
 
 
-*/
 int main() {
     struct sockaddr_in myaddr;
    inet_aton("125.221.21.255", &myaddr.sin_addr);
@@ -88,5 +90,15 @@ int main() {
     int res = convert_hostaddr_to_network_int("125.221.21.255", &ipv4);
     printf("%d %u %u\n", res, ipv4, myaddr.sin_addr.s_addr);
 }
+*/
 
 
+int main() {
+    int fd = open_file_path("int.bin", 0);
+    mqtt_packet_s packet;
+    packet.packet_len = 0;
+    packet.packet_bytes = 0;
+    read_single_packet_from_file(fd, &packet);
+    printf("%s\n", packet.packet_bytes);
+    free_single_packet_bytes(&packet);
+}
