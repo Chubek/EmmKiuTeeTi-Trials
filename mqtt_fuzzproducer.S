@@ -169,7 +169,7 @@
 		#define FILE_DSC %rdi
 		#define PACK_PTR %rsi
 		#define PACK_TMP %r12
-		#define PLEN_LEN $4
+		#define PLEN_LEN $8
 		#define ANON_MMP $33
 		#define ANON_DSC $-1
 		#define ARG1_WRD %esi
@@ -195,29 +195,56 @@
 		xor SYSC_AG5, SYSC_AG5
 			
 		mov SYSCNR_mmap, SYSC_NRR
-		movl (PACK_TMP), ARG1_WRD
+		mov (PACK_TMP), SYSC_AG1
 		mov PROT_RWX, SYSC_AG2
 		mov ANON_MMP, SYSC_AG3
 		mov ANON_DSC, SYSC_AG4
 		syscall
 
-		mov SYSC_NRR, 4(PACK_TMP)
+		mov SYSC_NRR, 8(PACK_TMP)
 
-		mov $0x414141, %r10
-		mov %r10, (SYSC_NRR)
-
-		xor PACK_PTR, PACK_PTR
 		xor FILE_DSC, FILE_DSC
-		xor SYSC_AG2, SYSC_AG2
 		xor SYSC_NRR, SYSC_NRR
-		pop FILE_DSC
 		xor SYSC_AG1, SYSC_AG1
 		xor SYSC_AG2, SYSC_AG2
-		mov 4(PACK_TMP), SYSC_AG1
-		movl (PACK_TMP), ARG2_WRD
+
+		pop FILE_DSC
+		mov 8(PACK_TMP), SYSC_AG1
+		mov (PACK_TMP), SYSC_AG2
 		mov SYSCNR_read, SYSC_NRR
 		syscall
 
 		pop PACK_TMP
+		ret
+
+		#undef FILE_DSC
+        #undef PACK_PTR
+        #undef PACK_TMP
+        #undef PLEN_LEN
+        #undef ANON_MMP
+        #undef ANON_DSC
+        #undef ARG1_WRD
+        #undef ARG2_WRD
+        #undef TEMP_WRD
+        #undef PROT_RWX
+
+
+	free_single_packet_bytes:
+		#define PACK_PTR %rdi
+		#define PACK_TMP %r11
+		
+		mov PACK_PTR, PACK_TMP
+
+		xor SYSC_AG0, SYSC_AG0
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_NRR, SYSC_NRR
+
+		mov 8(PACK_TMP), SYSC_AG0
+		mov (PACK_TMP), SYSC_AG1
+		mov SYSCNR_munmap, SYSC_NRR
+		syscall
 
 		ret
+
+		#undef PACK_PTR
+		#undef PACK_TMP
