@@ -176,6 +176,11 @@
 		#define ARG2_WRD %edx
 		#define TEMP_WRD %r10d
 		#define PROT_RWX $7
+		#define MEMR_ERR $-1
+		#define SIZE_ERR $-2
+		#define BYTE_ERR $-3
+		#define READ_OKK $0
+		#define RETR_REG %rax
 
 		push PACK_TMP
 
@@ -183,6 +188,9 @@
 		mov SYSCNR_read, SYSC_NRR
 		mov PLEN_LEN, SYSC_AG2
 		syscall
+
+		cmp PLEN_LEN, SYSC_NRR
+		jne 1f
 
 		push FILE_DSC
 		mov PACK_PTR, PACK_TMP
@@ -201,6 +209,9 @@
 		mov ANON_DSC, SYSC_AG4
 		syscall
 
+		test SYSC_NRR, SYSC_NRR
+		js 2f
+
 		mov SYSC_NRR, 8(PACK_TMP)
 
 		xor FILE_DSC, FILE_DSC
@@ -214,8 +225,28 @@
 		mov SYSCNR_read, SYSC_NRR
 		syscall
 
+		cmp SYSC_AG2, SYSC_NRR
+		jne 3f
+
+		xor RETR_REG, RETR_REG
+		mov READ_OKK, RETR_REG	
+
+	4:
 		pop PACK_TMP
 		ret
+
+	1:
+		xor RETR_REG, RETR_REG
+		mov SIZE_ERR, RETR_REG
+		jmp 4b
+	2:
+		xor RETR_REG, RETR_REG
+		mov MEMR_ERR, RETR_REG
+		jmp 4b	
+	3:
+		xor RETR_REG, RETR_REG
+		mov BYTE_ERR, RETR_REG
+		jmp 4b
 
 		#undef FILE_DSC
         #undef PACK_PTR
@@ -227,7 +258,11 @@
         #undef ARG2_WRD
         #undef TEMP_WRD
         #undef PROT_RWX
-
+        #undef MEMR_ERR
+		#undef SIZE_ERR
+		#undef BYTE_ERR
+		#undef READ_OKK
+		#undef RETR_REG
 
 	free_single_packet_bytes:
 		#define PACK_PTR %rdi
