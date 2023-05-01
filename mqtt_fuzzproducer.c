@@ -10,13 +10,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define ERROR_READ_SIZE 1
-#define ERROR_READ_PACK 2
+#define O_CREAT 64
 
-typedef unsigned short mqtt_packettype_t;
+typedef char *mqtt_packetbytes_t;
 typedef unsigned long mqtt_packetlen_t;
 typedef unsigned long mqtt_packetnum_t;
-typedef char *mqtt_packetbytes_t;
+typedef char mqtt_pubackres_t;
+typedef unsigned long mqtt_pubackoff_t;
 
 typedef struct MQTTFuzzPacket {
     mqtt_packetlen_t packet_len;
@@ -32,6 +32,13 @@ typedef struct MQTTFuzzPacketColl {
     mqtt_packet_s pubackpacket;
 } mqtt_packcoll_s;
 
+
+typedef struct MQTTFuzzPubackRes {
+    mqtt_pubackoff_t writeoffse;
+    mqtt_packetnum_t numpubackpackets;
+    mqtt_pubackres_t *pubackresults;
+} mqtt_pubacks_t;
+
 extern int read_from_file(int fd, void *dst, int readcount, int bytecount);
 extern int open_file_path(char *path, int flags);
 extern void close_file_desc(int fd);
@@ -40,65 +47,24 @@ extern void error_out_from_app(int code);
 extern int convert_hostaddr_to_network_int(char *host, unsigned int *ipv4);
 extern int read_single_packet_from_file(int fd, mqtt_packet_s *packet);
 extern void free_single_packet_bytes(mqtt_packet_s *packet);
+extern char *memorymap_file_shared(int fd, mqtt_packetnum_t pubacksnum, mqtt_pubackoff_t pubacksoffset);
 
-/*
-int read_single_packet(int fd, mqtt_packet_s *packet) {
-    int readres = 0;
-    readres = read_from_file(fd, &packet->packet_type, 1, 0);
-    if (readres != 1) return -1;
-    readres = read_from_file(fd, &packet->packet_len, 4, 0);
-    if (readres != 4) return -1;
-    packet->packet_bytes = calloc(packet->packet_len, 1);
-    readres = read_from_file(fd, packet->packet_bytes, packet->packet_len, 0);
-    if (readres != packet->packet_len) return -1;
-    return 0;
+
+mqtt_packcoll_s *parse_packet_file(char *filepath) {
+    mqtt_packcoll_s packetscoll;
 }
-
-mqtt_packetcoll_s parse_mqtt_packet_file(char *filepath) {
-    int readres = 0;
-    mqtt_packet_s packets;
-    
-    int fd = open_file_path(filepath);
-    if (fd < 1) error_out_from_app(ERROR_OPEN_PACKFILE);
-    
-    readres = read_from_file(fd, &packets.numpublishpackets, 8, 0);
-    if (readres != 8)  error_out_from_app(ERROR_READ_PSIZE);
-    mqtt_packet_s *packets = calloc(packets.numpublishpackets, sizeof(mqtt_packet_s));
-    for (int i = 0; i < packets.numpublishpackets; i++) {
-        readres = read_single_packet(fd, &packets.publishpackets[0]);
-        if (readres == -1) error_out_from_app(ERROR_READ_PUBLISHPACK);
-    }
-
-    readres = read_single_packet(fd, &packets.connectpacket);
-    if (readres == -1) error_out_from_app(ERROR_READ_CONNECTPACK);
-    readres = read_single_packet(fd, &packets.connackpacket);
-    if (readres == -1) error_out_from_app(ERROR_READ_CONNACKPACK);
-    readres = read_single_packet(fd, &packets.disconnpacket);
-    if (readres == -1) error_out_from_app(ERROR_READ_DISCONNPACK);
-    if (readres == -1) error_out_from_app(ERROR_READ_PUBACKPACK);
-
-    
-    close_file_desc(fd);
-    return packets;
-}   
 
 
 int main() {
-    struct sockaddr_in myaddr;
-   inet_aton("125.221.21.255", &myaddr.sin_addr);
-    unsigned int ipv4 = 0;
-    int res = convert_hostaddr_to_network_int("125.221.21.255", &ipv4);
-    printf("%d %u %u\n", res, ipv4, myaddr.sin_addr.s_addr);
-}
-*/
-
-
-int main() {
-    int fd = open_file_path("int.bin", 0);
-    mqtt_packet_s packet;
-    packet.packet_len = 0;
-    packet.packet_bytes = 0;
-    read_single_packet_from_file(fd, &packet);
-    printf("%s\n", packet.packet_bytes);
-    free_single_packet_bytes(&packet);
+   int fd = open_file_path("res.bin", O_CREAT);
+   mqtt_pubacks_t pubacks;
+   pubacks.writeoffset = 10;
+   pubacks.numpubackpackets = 3;
+   pubacks.pubackresults = calloc(3, 1);
+   pubacks.pubackresults[0] = 'F';
+   pubacks.pubackresults[1] = 'S';
+   pubacks.pubackresults[2] = 'F';
+   write_pubacks_to_file(fd, &pubacks);
+   free(pubacks.pubackresults);
+   close_file_desc(fd);
 }
