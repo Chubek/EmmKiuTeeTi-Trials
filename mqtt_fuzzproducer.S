@@ -1,8 +1,10 @@
 #define SYSCNR_read $0
 #define SYSCNR_open $2
 #define SYSCNR_close $3
+#define SYSCNR_mmap $9
+#define SYSCNR_munmap $11
 
-#define SYSC_AG0 %rsi
+#define SYSC_AG0 %rdi
 #define SYSC_AG1 %rsi
 #define SYSC_AG2 %rdx
 #define SYSC_AG3 %r10
@@ -16,6 +18,8 @@
 	.global open_file_path
 	.global close_file_desc
 	.global convert_hostaddr_to_network_int
+	.global read_single_packet_from_file
+	.global free_single_packet_bytes
 
 
 .text
@@ -138,4 +142,82 @@
 		jmp 9f
 	9:
 		ret
-		
+
+		#undef HOST_ADR
+		#undef DEST_INT
+		#undef RETR_FIN
+		#undef ACCM_REG
+		#undef CNTR_REG
+		#undef DIGT_BYY
+		#undef RETR_WRD
+		#undef DIGT_DWD
+		#undef TEMP_DWD
+		#undef TEMP_BYY
+		#undef SHFL_REG
+		#undef SHFL_BEG
+		#undef CNTR_MAX
+		#undef SHFL_STP
+		#undef MULT_NUM
+		#undef ASCI_PER
+		#undef ASCI_ZRO
+		#undef ASCI_NIN
+		#undef ERRN_NDG
+		#undef ERRN_BSP
+		#undef RETR_SUC
+
+	read_single_packet_from_file:
+		#define FILE_DSC %rdi
+		#define PACK_PTR %rsi
+		#define PACK_TMP %r12
+		#define PLEN_LEN $4
+		#define ANON_MMP $33
+		#define ANON_DSC $-1
+		#define ARG1_WRD %esi
+		#define ARG2_WRD %edx
+		#define TEMP_WRD %r10d
+		#define PROT_RWX $7
+
+		push PACK_TMP
+
+		xor PACK_TMP, PACK_TMP
+		mov SYSCNR_read, SYSC_NRR
+		mov PLEN_LEN, SYSC_AG2
+		syscall
+
+		push FILE_DSC
+		mov PACK_PTR, PACK_TMP
+		xor SYSC_NRR, SYSC_NRR
+		xor SYSC_AG0, SYSC_AG0
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+		xor SYSC_AG3, SYSC_AG3
+		xor SYSC_AG4, SYSC_AG4
+		xor SYSC_AG5, SYSC_AG5
+			
+		mov SYSCNR_mmap, SYSC_NRR
+		movl (PACK_TMP), ARG1_WRD
+		mov PROT_RWX, SYSC_AG2
+		mov ANON_MMP, SYSC_AG3
+		mov ANON_DSC, SYSC_AG4
+		syscall
+
+		mov SYSC_NRR, 4(PACK_TMP)
+
+		mov $0x414141, %r10
+		mov %r10, (SYSC_NRR)
+
+		xor PACK_PTR, PACK_PTR
+		xor FILE_DSC, FILE_DSC
+		xor SYSC_AG2, SYSC_AG2
+		xor SYSC_NRR, SYSC_NRR
+		pop FILE_DSC
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+		mov 4(PACK_TMP), SYSC_AG1
+		movl (PACK_TMP), ARG2_WRD
+		mov SYSCNR_read, SYSC_NRR
+		syscall
+
+		pop PACK_TMP
+
+		ret
