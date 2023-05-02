@@ -5,6 +5,9 @@
 #define SYSCNR_lseek $8
 #define SYSCNR_mmap $9
 #define SYSCNR_munmap $11
+#define SYSCNR_socket $41
+#define SYSCNR_connect $42
+#define SYSCNR_exit $60
 
 #define SYSC_AG0 %rdi
 #define SYSC_AG1 %rsi
@@ -17,12 +20,20 @@
 
 .data
 	.global read_from_file
+	.global write_to_file
 	.global open_file_path
 	.global close_file_desc
-	.global convert_hostaddr_to_network_int
+	.global exit_from_app
+	.global convert_hostaddr_to_netbyteorder
 	.global read_single_packet_from_file
 	.global free_single_packet_bytes
 	.global memorymap_file_shared
+	.global unmap_memorymap_shared
+	.global write_packet_to_mmaped_file
+	.global netport_to_netbyteorder
+	.global open_socket_and_connect
+	.global send_packet_to_broker
+	.global receive_packet_from_broker
 
 .text
 	read_from_file:
@@ -46,6 +57,27 @@
 		#undef WORD_NUM
 		#undef DEST_TMP
 
+	write_to_file:
+		#define FILE_DSC %rdi
+		#define WRIT_DST %rdi
+		#define WRIT_CNT %rdx
+		#define WORD_NUM %rcx
+		#define DEST_TMP %r10
+
+		xor SYSC_NRR, SYSC_NRR
+		shl WORD_NUM, READ_CNT
+
+		mov SYSCNR_write, SYSC_NRR
+		syscall
+
+		ret
+
+		#undef FILE_DSC
+		#undef WRIT_DST
+		#undef WRIT_CNT
+		#undef WORD_NUM
+		#undef DEST_TMP
+
 	open_file_path:
 		#define FILE_PTH %rdi
 		#define OPEN_FLG %rsi
@@ -65,8 +97,20 @@
 		mov SYSCNR_close, SYSC_NRR
 		syscall
 
+		ret
 
-	convert_hostaddr_to_network_int:
+	exit_from_app:
+		#define EXIT_COD %rdi
+
+		xor SYSC_NRR, SYSC_NRR
+		mov SYSCNRR_exit, SYSC_NRR
+		syscall
+
+		ret
+
+		#undef EXIT_COD
+
+	convert_hostaddr_to_netbyteorder:
 		#define HOST_ADR %rdi
 		#define DEST_INT %rsi
 		#define RETR_FIN %rax
@@ -184,7 +228,7 @@
 		#define READ_OKK $0
 		#define RETR_REG %rax
 
-		push PACK_TMP
+		pushq PACK_TMP
 
 		xor PACK_TMP, PACK_TMP
 		mov SYSCNR_read, SYSC_NRR
@@ -214,7 +258,7 @@
 		test SYSC_NRR, SYSC_NRR
 		js 2f
 
-		mov SYSC_NRR, 8(PACK_TMP)
+		movq SYSC_NRR, 8(PACK_TMP)
 
 		xor FILE_DSC, FILE_DSC
 		xor SYSC_NRR, SYSC_NRR
@@ -222,7 +266,7 @@
 		xor SYSC_AG2, SYSC_AG2
 
 		pop FILE_DSC
-		mov 8(PACK_TMP), SYSC_AG1
+		movq 8(PACK_TMP), SYSC_AG1
 		mov (PACK_TMP), SYSC_AG2
 		mov SYSCNR_read, SYSC_NRR
 		syscall
@@ -234,7 +278,7 @@
 		mov READ_OKK, RETR_REG	
 
 	4:
-		pop PACK_TMP
+		popq PACK_TMP
 		ret
 
 	1:
@@ -315,4 +359,212 @@
 	2:
 		xor SYSC_NRR, SYSC_NRR
 		mov MMAP_ERR, SYSC_NRR
-		mov 1b
+		jmp 1b
+
+		#undef  FILE_DSC
+        #undef  MMAP_LEN
+        #undef  MMAP_OFS
+        #undef  FLAG_SHR
+        #undef  PROT_RWX
+        #undef  NULL_MEM
+        #undef  MMAP_ERR
+
+    unmap_memorymap_shared:
+    	#define MMAP_ADR %rdi
+    	#define MMAP_LEN %rsi
+
+    	xor SYSC_NRR, SYSC_NRR
+    	mov SYSCNR_munmap, SYSC_NRR
+    	syscall
+
+    	ret
+
+    	#undef MMAP_ADR
+    	#undef MMAP_LEN
+
+    write_packet_to_mmaped_file:
+    	#define FILE_DSC %rdi
+    	#define PACK_PTR %rsi
+    	#define PLEN_REG %r10
+    	#define PADR_REG %r11
+    	#define RETR_REG %rax
+    	#define ERRC_NUM $-1
+
+    	xor PLEN_REG, PLEN_REG
+    	xor PADR_REG, PADR_REG
+
+    	mov (PACK_PTR), PLEN_REG
+    	mov 8(PACK_PTR), PADR_REG
+
+    	xor SYSC_AG1, SYSC_AG1
+    	xor SYSC_AG2, SYSC_AG2
+    	xor SYSC_NRR, SYSC_NRR
+
+    	mov PADR_REG, SYSC_AG1
+    	mov PLEN_REG, SYSC_AG2
+    	mov SYSCNR_write, SYSC_NRR
+    	syscall
+
+    	cmp SYSC_NR, PLEN_REG
+    	jne 2f
+
+    1:
+    	ret
+
+    2:
+    	xor RETR_REG, RETR_REG
+    	mov ERRC_NUM, RETR_REG
+    	jmp 1b
+
+
+
+	netport_to_netbyteorder:
+		#define PORT_LIL %di
+		#define ROTR_NUM $8
+		#define RETR_REG %ax
+		#define RETR_DWD %rax
+
+		xor RETR_DWD, RETR_DWD
+		rol ROTR_NUM, PORT_LIL
+		movw PORT_LIL, RETR_REG
+
+		ret
+
+		#undef PORT_LIL
+		#undef ROTR_NUM
+		#undef RETR_REG
+		#undef RETR_DWD
+
+		
+	open_socket_and_connect:
+		#define ADDR_WRD %edi
+		#define PORT_HWD %si
+		#define FRAM_PTR %rbp
+		#define STCK_PTR %rsp
+		#define SFAM_IP4 $2 
+		#define SOCK_STM $1
+		#define ADRS_LEN $16
+		#define TMP1_BYY %r10b
+		#define TMP1_HWD %r10w
+		#define TMP1_WRD %r10d
+		#define TMP1_DWD %10
+		#define RETR_SCK %rax
+		#define ZERO_PAD $0
+
+		pushq FRAM_PTR
+		movq STCK_PTR, FRAM_PTR
+		subq ADRS_LEN, FRAM_PTR
+
+		movb SFAM_IP4, (FRAM_PTR)
+		movw PORT_HWD, 1(FRAM_PTR)
+		movl ADDR_WRD, 3(FRAM_PTR)
+		movd ZERO_PAD, 8(FRAM_PTR)
+
+		xor SYSC_NRR, SYSC_NRR
+		xor SYSC_AG0, SYSC_AG0
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+
+		mov SFAM_IP4, SYSC_AG0
+		mov SOCK_STM, SYSC_AG1
+		mov SYSCNR_socket, SYSC_NRR
+		syscall
+
+		mov SYSC_NRR, TMP1_DWD
+		
+		xor SYSC_NRR, SYSC_NRR 
+		xor SYSC_AG0, SYSC_AG0
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+
+		mov TMP1_DWD, SYSC_AG0
+		leaq (FRAM_PTR), SYSC_AG1
+		mov ADRS_LEN, SYSC_AG2
+		mov SYSCNR_connect, SYSC_NRR
+		syscall
+
+		xor RETR_SCK, RETR_SCK
+		mov TMP1_DWD, RETR_SCK
+
+		popq FRAM_PTR
+
+		ret
+
+	send_packet_to_broker:
+		#define SOCK_DSC %rdi
+		#define PACK_PTR %rsi
+		#define PLEN_REG %r10
+		#define PADR_REG %r11
+		#define ERRC_NUM $-1
+
+		xor PLEN_REG, PLEN_REG
+		xor PADR_REG, PADR_REG
+
+		mov (PACK_PTR), PLEN_REG
+		movq 8(PACK_PTR), PADR_REG
+
+		xor SYSC_NRR, SYSC_NRR
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+
+		mov SYSCNR_write, SYSC_NRR
+		movq PADR_REG, SYSC_AG1
+		mov PLEN_REG, SYSC_AG2
+		syscall
+
+		cmp SYSC_NRR, PLEN_REG
+		jne 2f
+
+	1:
+		ret
+
+	1:
+		xor SYSC_NRR, SYSC_NRR
+		mov ERRC_NUM, SYSC_NRR
+		jmp 1b
+
+		#undef SOCK_DSC
+        #undef PACK_PTR
+        #undef PLEN_REG
+        #undef PADR_REG
+        #undef ERRC_NUM
+
+
+	receive_packet_from_broker:
+		#define SOCK_DSC %rdi
+		#define PACK_PTR %rsi
+		#define PLEN_REG %r10
+		#define PADR_REG %r11
+		#define ERRC_NUM $-1
+
+		xor PLEN_REG, PLEN_REG
+		xor PADR_REG, PADR_REG
+
+		mov (PACK_PTR), PLEN_REG
+		movq 8(PACK_PTR), PADR_REG
+
+		xor SYSC_NRR, SYSC_NRR
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+
+		mov SYSCNR_read, SYSC_NRR
+		movq PADR_REG, SYSC_AG1
+		mov PLEN_REG, SYSC_AG2
+		syscall
+
+		cmp SYSC_NRR, PLEN_REG
+		jne 2f
+
+	1:
+		ret
+
+	1:
+		xor SYSC_NRR, SYSC_NRR
+		mov ERRC_NUM, SYSC_NRR
+		jmp 1b
+
+		#undef SOCK_DSC
+        #undef PACK_PTR
+        #undef PLEN_REG
+        #undef PADR_REG
+        #undef ERRC_NUM
