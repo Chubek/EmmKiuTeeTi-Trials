@@ -1,6 +1,7 @@
 .data
 	.global seek_zero
 	.global sum_array
+	.global starter_gun
 
 
 .text
@@ -72,3 +73,28 @@
 		#undef FIN_SUMM %rax
 		#undef LDR_TEMP %r11
 		#undef CNT_TEMP %r10
+
+
+	starter_gun:
+		#define CNT_DOWN %rdi
+		#define JMP_ADDR %rsi
+		#define UPP_TSCR %rdx
+		#define INI_TSCR %r10
+
+		xor INI_TSCR, INI_TSCR
+		rdtsc
+		mov UPP_TSCR, INI_TSCR
+	1:
+		rdtsc
+		sub INI_TSCR, UPP_TSCR
+		cmp UPP_TSCR, CNT_DOWN
+		jge 2f
+		jmp 1b
+	2:
+		jmp *JMP_ADDR
+		ret
+
+		#undef CNT_DOWN %rdi
+		#undef JMP_ADDR %rsi
+		#undef UPP_TSCR %rdx
+		#undef INI_TSCR %r10

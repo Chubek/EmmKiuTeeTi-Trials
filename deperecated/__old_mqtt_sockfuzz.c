@@ -333,7 +333,7 @@ set_fail:
 
 
 void mqtt_context_disconnect_broker(mqtt_fuzztstcx_s *context_object, int retries) {
-	CHECK_FLAG_AGAINST(context_object->statusf, BROKR_CONNECTSOCK_CONN_DONE);
+	CHECK_FLAG_AGAINST(context_object->statusf, FUZZT_PUBLISHPACK_SEND_DONE);
 
 	mqtt_fuzzpackets_s *packets_object = &context_object->packets;
 	mqtt_fuzzconntcx_s *connect_object = &context_object->connect;
@@ -345,6 +345,8 @@ void mqtt_context_disconnect_broker(mqtt_fuzztstcx_s *context_object, int retrie
 }
 
 void mqtt_context_close_socket(mqtt_fuzztstcx_s *context_object) {
+	CHECK_FLAG_AGAINST(context_object->statusf, CONTX_MQTTFUZZTST_INIT_DONE);
+
 	close(context_object->connctx.sock);
 	return;
 }

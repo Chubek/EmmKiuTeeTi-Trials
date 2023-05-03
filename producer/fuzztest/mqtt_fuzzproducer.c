@@ -64,14 +64,12 @@ typedef struct MQTTFuzzTestNetConn {
 } mqtt_brokerconnection_s;
 
 typedef struct MQTTFuzzTest {
-    mqtt_packnum_t numpackets;
-    mqtt_filedsc_t inputfile;
-    mqtt_filedsc_t outputfile;
-    mqtt_brokerconnection_s brokerconn;
-    mqtt_peripherypackets_s peripherypackets;
+    mqtt_packetnum_t publishpacketsnum;
     mqtt_publishpacks_t publishpackets;
-    mqtt_memaddr_t resultmmap;
-} mqtt_fuzztest_s;
+    mqtt_peripherypackets_s peripherypackets;
+    mqtt_memaddr_t resultsmmap;
+    mqtt_brokerconnection_s brokerconn;
+} mqtt_fuzztestctx_s;
 
 
 
@@ -130,40 +128,37 @@ mqtt_publishpacks_t read_publish_packets(mqtt_filedsc_t fd, mqtt_packnum_t packe
 mqtt_results_t create_memory_map_for_results(mqtt_filedsc_t fd, mqtt_packnum_t packetsnum, mqtt_offset_t offset) {
     mqtt_memsize_t allocsize = packetsnum * sizeof(mqtt_result_t);
     mqtt_memddr_t mmapped_results = memorymap_file_shared(fd, packetsnum, offset);
+    CHECK_VAR(mapped_results, "Error mapping result memory file\n");
+    
     return (mqtt_results_t)mapped_results;
 }
 
 
-mqtt_brokerconn_s create_socket_and_connect(mqtt_hostaddr_t hostaddr, mqtt_netport_t port) {
-    mqtt_yield_t yield = 0;
-    mqtt_ipv4_t ipv4 = 0;
-    mqtt_netport_t port = 0;
-    mqtt_sockdsc_t sock = 0;
-
-    yield = convert_hostaddr_to_netbyteorder(hostaddr, &ipv4);
-    CHECK_YIELD("Error with IPV4 address");
-
-    port = netport_to_netbyteorder(port);
-    ASSERT_YIELD(port, MAX_UINT16, "Error with port\n");
-
-    sock = open_socket_and_connect(ipv4, port);
+mqtt_brokerconn_s create_socket_and_connect(mqtt_ipv4_t ipv4, mqtt_netport_t port) {
+    mqtt_sockdsc_t sock = open_socket_and_connect(ipv4, port);
     CHECK_VAR(sock, "Error openning socket and connecting\n");
 
-    return (mqtt_brokerconn_s brokerconn) {
+    return (mqtt_brokerconn_s) {
         .ip = ipv4,
         .port = port,
         .socket = sock,
     };
 }
 
-mqtt_fuzz_s new_fuzz_context(mqtt_filedsc_t inpdsc, mqtt_filedsc_t outdsc, mqtt_offset_t offset) {
+mqtt_fuzztestctx_s new_fuzz_context(mqtt_filedsc_t inpdsc, mqtt_filedsc_t outdsc, mqtt_offset_t offset, mqtt_ipv4_t ipv4, mqtt_netport_t port) {
     mqtt_packnum_t publishpacketsnum = read_packet_num(inpdsc);
     mqtt_publishpacks_t publishpackets = read_publish_packets(inpdsc, publishpacketsnum);
     mqtt_peripherypackets_s peripherypackets = read_periphery_packets(inpdsc);
     mqtt_results_t resultsmmap = create_memory_map_for_results(outdsc, publishpacketsnum, offset);
-    
+    mqtt_brokerconn_s brokerconn = create_socket_and_connect(ipv4, port);
 
-
+    return (mqtt_fuzztestctx_s){
+        .publishpacketsnum = publishpacketsnum,
+        .publishpackets = publishpackets,
+        .peripherypackets = peripherypackets,
+        .resultsmmap = resultsmmap,
+        .brokerconn = brokerconn,
+    };
 }
 
 int main() {

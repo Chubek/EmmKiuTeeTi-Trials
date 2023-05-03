@@ -10,7 +10,7 @@ class SocketInterface:
         self.sock = socket(family=sockfamily)
 
     def connect(self):
-        self.sock.connect((self.addr, self.port))
+        self.sock.connect( (self.addr, self.port))
 
     @classmethod
     def spawn_socket_interface(cls, *args, **kwargs):
