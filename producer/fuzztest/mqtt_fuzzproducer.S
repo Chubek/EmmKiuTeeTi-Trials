@@ -28,7 +28,8 @@
 	.global open_file_path
 	.global close_file_desc
 	.global write_to_stderr_and_exit
-	.global exit_from_app
+	.global write_to_stdout
+	.global exit_from_app_or_subproc
 	.global zero_out_memory
 	.global convert_hostaddr_to_netbyteorder
 	.global read_packet_num
@@ -111,15 +112,12 @@
 		#define CHAR_REG %r10b
 		#define CHAR_DWD %r10
 		#define ERRS_TMP %r11
-		#define CNTR_REG %rcx
 		#define EXIT_STT $1
-		#define SUFF_SPC $2024
 
 		xor CHAR_DWD, CHAR_DWD
 		xor SYSC_NRR, SYSC_NRR
 		xor ERRS_TMP, ERRS_TMP
-		xor CNTR_REG, CNTR_REG
-
+		
 		movq ERRS_PTR, ERRS_TMP
 
 	1:
@@ -144,8 +142,40 @@
 
 		ret
 
+		#undef ERRS_PTR
+		#undef CHAR_REG
+		#undef CHAR_DWD
+		#undef ERRS_TMP
+		#undef EXIT_STT
 
-	exit_from_app:
+
+	write_to_stdout:
+		#define MSSG_PTR %rdi
+		#define CHAR_REG %r10b
+		#define CHAR_DWD %r10
+		#define MSSG_TMP %r11
+
+		movq MSSG_PTR, MSSG_TMP
+		xorq CHAR_DWD, CHAR_DWD
+	1:
+		movb (MSSG_PTR), CHAR_REG
+		inc MSSG_PTR
+		test CHAR_REG, CHAR_REG
+		jz 2f
+		jmp 1b
+
+	2:
+		movq MSSG_TMP, SYSC_AG2
+		subq MSSG_PTR, SYSC_AG2
+
+		movq MSSG_PTR, SYSC_AG1
+		movq SYSCID_stdout, SYSC_AG0
+		movq SYSCNR_write, SYSC_NRR
+		syscall
+
+		ret
+
+	exit_from_app_or_subproc:
 		#define EXIT_COD %rdi
 
 		xor SYSC_NRR, SYSC_NRR
