@@ -9,6 +9,9 @@
 #define SYSCNR_connect $42
 #define SYSCNR_exit $60
 
+#define SYSCID_stdout $1
+#define SYSCID_stderr $2
+
 #define SYSC_AG0 %rdi
 #define SYSC_AG1 %rsi
 #define SYSC_AG2 %rdx
@@ -23,10 +26,14 @@
 	.global write_to_file
 	.global open_file_path
 	.global close_file_desc
+	.global write_to_stderr_and_exit
 	.global exit_from_app
+	.global zero_out_memory
 	.global convert_hostaddr_to_netbyteorder
+	.global read_packet_num
 	.global read_single_packet_from_file
 	.global free_single_packet_bytes
+	.global allocate_memory
 	.global memorymap_file_shared
 	.global unmap_memorymap_shared
 	.global write_packet_to_mmaped_file
@@ -65,7 +72,7 @@
 		#define DEST_TMP %r10
 
 		xor SYSC_NRR, SYSC_NRR
-		shl WORD_NUM, READ_CNT
+		shl WORD_NUM, WRIT_CNT
 
 		mov SYSCNR_write, SYSC_NRR
 		syscall
@@ -99,16 +106,113 @@
 
 		ret
 
+	write_to_stderr_and_exit:
+		#define ERRS_PTR %rdi
+		#define CHAR_REG %r10b
+		#define CHAR_DWD %r10
+		#define ERRS_TMP %r11
+		#define CNTR_REG %rcx
+		#define EXIT_STT $1
+		#define SUFF_SPC $2024
+
+		xor CHAR_DWD, CHAR_DWD
+		xor SYSC_NRR, SYSC_NRR
+		xor ERRS_TMP, ERRS_TMP
+		xor CNTR_REG, CNTR_REG
+
+		movq ERRS_PTR, ERRS_TMP
+
+	1:
+		movb (ERRS_TMP), CHAR_REG
+		inc ERRS_TMP
+		test CHAR_REG, CHAR_REG
+		jz 2f
+		jmp 1b
+
+	2:
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+		xor SYSC_NRR, SYSC_NRR
+
+		movq ERRS_TMP, SYSC_AG2
+		subq ERRS_PTR, SYSC_AG2
+
+		movq ERRS_PTR, SYSC_AG1
+		xor SYSC_AG0, SYSC_AG0
+		mov SYSCID_stderr, SYSC_AG0
+		mov SYSCNR_write, SYSC_NRR
+		syscall  
+
+		xor SYSC_AG0, SYSC_AG0
+		mov EXIT_STT, SYSC_AG0
+		xor SYSC_NRR, SYSC_NRR
+		mov SYSCNR_exit, SYSC_NRR
+		syscall
+
+		ret
+
+
 	exit_from_app:
 		#define EXIT_COD %rdi
 
 		xor SYSC_NRR, SYSC_NRR
-		mov SYSCNRR_exit, SYSC_NRR
+		mov SYSCNR_exit, SYSC_NRR
 		syscall
 
 		ret
 
 		#undef EXIT_COD
+
+	zero_out_memory:
+		#define ADDR_PTR %rsi
+		#define ADDR_LEN %rdi
+		#define CNTR_REG %rcx
+		#define ZERO_NUM %r10b
+		#define ZERO_REG %r10
+
+		xor ZERO_REG, ZERO_REG
+		mov ADDR_LEN, CNTR_REG
+	
+	1:
+		movb ZERO_NUM, (ADDR_PTR, CNTR_REG)
+		loop 1b
+
+		ret
+
+		#undef ADDR_PTR
+		#undef ADDR_LEN
+		#undef CNTR_REG
+		#undef ZERO_NUM
+
+	read_packet_num:
+		#define FILE_DSC %rdi
+		#define STCK_PTR %rsp
+		#define FRAM_PTR %rbp
+		#define SIZE_LEN $8
+
+		pushq FRAM_PTR
+		movq STCK_PTR, FRAM_PTR
+		subq SIZE_LEN, FRAM_PTR
+
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+		xor SYSC_NRR, SYSC_NRR
+
+		leaq FRAM_PTR, SYSC_AG1
+		mov SIZE_LEN, SYSC_AG2
+		mov SYSCNR_read, SYSC_NRR
+		syscall
+
+		cmp SIZE_LEN, SYSC_NRR
+		jne 1b
+
+		xor SYSC_NRR, SYSC_NRR
+		mov (FRAM_PTR), SYSC_NRR
+
+	1:
+		popq FRAM_PTR
+		ret
+
 
 	convert_hostaddr_to_netbyteorder:
 		#define HOST_ADR %rdi
@@ -405,7 +509,7 @@
     	mov SYSCNR_write, SYSC_NRR
     	syscall
 
-    	cmp SYSC_NR, PLEN_REG
+    	cmp SYSC_NRR, PLEN_REG
     	jne 2f
 
     1:
@@ -416,7 +520,45 @@
     	mov ERRC_NUM, RETR_REG
     	jmp 1b
 
+    	#undef FILE_DSC
+        #undef PACK_PTR
+        #undef PLEN_REG
+        #undef PADR_REG
+        #undef RETR_REG
+        #undef ERRC_NUM
 
+    allocate_memory:
+    	#define ALOC_SIZ %rdi
+    	#define ALOC_TMP %r10
+    	#define NULL_FLD $-1
+    	#define FLAG_SHR $1
+		#define PROT_RWX $7
+
+		xor ALOC_TMP, ALOC_TMP
+		mov ALOC_SIZ, ALOC_TMP
+
+		xor SYSC_NRR, SYSC_NRR
+		xor SYSC_AG0, SYSC_AG0
+		xor SYSC_AG1, SYSC_AG1
+		xor SYSC_AG2, SYSC_AG2
+		xor SYSC_AG3, SYSC_AG3
+		xor SYSC_AG4, SYSC_AG4
+		xor SYSC_AG5, SYSC_AG5
+
+		mov ALOC_TMP, SYSC_AG1
+		mov PROT_RWX, SYSC_AG2
+		mov FLAG_SHR, SYSC_AG3
+		mov NULL_FLD, SYSC_AG4
+		mov SYSCNR_mmap, SYSC_NRR
+		syscall
+
+		ret
+
+		#undef ALOC_SIZ
+    	#undef ALOC_TMP
+    	#undef NULL_FLD
+    	#undef FLAG_SHR
+		#undef PROT_RWX
 
 	netport_to_netbyteorder:
 		#define PORT_LIL %di
@@ -447,18 +589,20 @@
 		#define TMP1_BYY %r10b
 		#define TMP1_HWD %r10w
 		#define TMP1_WRD %r10d
-		#define TMP1_DWD %10
+		#define TMP1_DWD %r10
 		#define RETR_SCK %rax
-		#define ZERO_PAD $0
+		#define ZERO_PAD %r11
 
 		pushq FRAM_PTR
 		movq STCK_PTR, FRAM_PTR
 		subq ADRS_LEN, FRAM_PTR
 
+		xor ZERO_PAD, ZERO_PAD
+
 		movb SFAM_IP4, (FRAM_PTR)
 		movw PORT_HWD, 1(FRAM_PTR)
 		movl ADDR_WRD, 3(FRAM_PTR)
-		movd ZERO_PAD, 8(FRAM_PTR)
+		mov ZERO_PAD, 8(FRAM_PTR)
 
 		xor SYSC_NRR, SYSC_NRR
 		xor SYSC_AG0, SYSC_AG0
@@ -518,7 +662,7 @@
 	1:
 		ret
 
-	1:
+	2:
 		xor SYSC_NRR, SYSC_NRR
 		mov ERRC_NUM, SYSC_NRR
 		jmp 1b
@@ -558,7 +702,7 @@
 	1:
 		ret
 
-	1:
+	2:
 		xor SYSC_NRR, SYSC_NRR
 		mov ERRC_NUM, SYSC_NRR
 		jmp 1b
