@@ -7,6 +7,7 @@
 #define SYSCNR_munmap $11
 #define SYSCNR_socket $41
 #define SYSCNR_connect $42
+#define SYSCNR_fork $58
 #define SYSCNR_exit $60
 
 #define SYSCID_stdout $1
@@ -43,6 +44,7 @@
 	.global send_packet_to_broker
 	.global receive_packet_from_broker
 	.global packet_bytes_are_same
+	.global fork_process
 
 .text
 	read_from_file:
@@ -102,6 +104,7 @@
 		syscall
 
 		ret
+
 
 	write_to_stderr_and_exit:
 		#define ERRS_PTR %rdi
@@ -673,3 +676,27 @@
         #undef DIFF_HAS
         #undef DIFF_NON
         #undef DWRD_LEN
+
+
+    close_broker_socket:
+    	#define BCON_PTR %rdi
+    	#define TEMP_REG %r10d
+
+    	xor TEMP_REG, TEMP_REG
+    	movl (BCON_PTR), TEMP_REG
+    	movzx TEMP_REG, SYSC_AG0
+    	movq SYSCNR_close, SYSC_NRR
+    	syscall
+
+    	ret
+
+
+    	#undef BCON_PTR
+    	#undef TEMP_REG
+
+
+    fork_process:
+    	movq SYSCNR_fork, SYSC_NRR
+    	syscall
+
+    	ret
