@@ -14,10 +14,12 @@
 #define MAX_UINT16 65535
 #define PABACK_SUCCESS 'S'
 #define PUBACK_FAIL 'F'
+#define EXIT_SUCCESS 0
 #define CHECK_YIELD(ERRMSG) if (yield < 0) write_to_stderr_and_exit(ERRMSG)
 #define ASSERT_YIELD(VAR, VAL, ERRMSG) if (VAR != VAL) write_to_stderr_and_exit(ERRMSG)
 #define CHECK_VAR(VAR, ERRMSG) if (VAR < ) write_to_stderr_and_exit(ERRMSG)
 #define CHECK_CMP(ERRMSG) if (!packcmp) write_to_stderr_and_exit(ERRMSG)
+#define ADD_TO_OFFSET offset += fuzzpackets.publishpacketsnum
 
 typedef void *mqtt_memaddr_t;
 typedef void mqtt_nonyield_t;
@@ -87,6 +89,16 @@ typedef struct MQTTFuzzContext {
     mqtt_results_t resultsmmap;
 } mqtt_fuzztestctx_s;
 
+
+typedef struct MQTTFuzzGlobalProperties {
+    mqtt_filepath_t inpfile;
+    mqtt_filepath_t outpfile;
+    mqtt_hostaddr_t hostaddr;
+    mqtt_netport_t portnum;
+    mqtt_procnum_t processnum;
+    mqtt_boolean_e ackconnect;
+} mqtt_fuzzglobprops_s;
+
 extern mqtt_yield_t read_from_file(mqtt_filedsc_t fd, mqtt_memaddr_t dst, mqtt_readlen_t readcount, mqtt_readlen_t bytecount);
 extern mqtt_yield_t write_to_file(mqtt_filedsc_t fd, mqtt_memaddr_t dst, mqtt_writelen_t readcount, mqtt_writelen_t bytecount);
 extern mqtt_yield_t read_single_packet_from_file(mqtt_filedsc_t fd, mqtt_packet_s *packet);
@@ -94,12 +106,12 @@ extern mqtt_yield_t send_packet_to_broker(mqtt_sockdsc_t sock, mqtt_packet_s *pa
 extern mqtt_yield_t receive_packet_from_broker(mqtt_sockdsc_t sock, mqtt_packet_s *packet);
 extern mqtt_yield_t convert_hostaddr_to_netbyteorder(mqtt_hostaddr_t host, mqtt_ipv4_t *ipv4conv);
 extern mqtt_yield_t write_packet_to_mmaped_file(mqtt_filedsc_t fd, mqtt_packet_s *packet);
-extern mqtt_nonyield_t fork_process();
 extern mqtt_nonyield_t close_file_desc(mqtt_filedsc_t fd);
 extern mqtt_nonyield_t close_broker_socket(mqtt_brokerconn_s *brokerconn);
-extern mqtt_nonyield_t exit_from_app(mqtt_exitcode_t code);
+extern mqtt_nonyield_t exit_from_app_or_subproc(mqtt_exitcode_t code);
 extern mqtt_nonyield_t free_single_packet_bytes(mqtt_packet_s *packet);
 extern mqtt_nonyield_t zero_out_memory(mqtt_memaddr_t address, mqtt_addrlen_t size);
+extern mqtt_nonyield_t write_to_stdout(mqtt_message_t message);
 extern mqtt_nonyield_t write_to_stderr_and_exit(mqtt_message_t message);
 extern mqtt_nonyield_t unmap_memorymap_shared(mqtt_memaddr_t addr, mqtt_memsize_t memsize);
 extern mqtt_filedsc_t open_file_path(mqtt_filepath_t path, mqtt_flags_t flags);
@@ -110,6 +122,7 @@ extern mqtt_netport_t netport_to_netbyteorder(mqtt_netport_t port);
 extern mqtt_sockdsc_t open_socket_and_connect(mqtt_ipv4_t ipv4addr, mqtt_netport_t port);
 extern mqtt_packnum_t read_packet_num(mqtt_filedsc_t fd);
 extern mqtt_packcmp_t packet_bytes_are_same(mqtt_packet_s *packet1, mqtt_packet_s *packet2);
+extern mqtt_procid_t fork_process();
 
 
 mqtt_fuzzprops_t new_fuzz_properties(mqtt_hostaddr_t ipaddr, mqtt_netport_t lilendianport, mqtt_filepath_t outfile) {
@@ -130,10 +143,6 @@ mqtt_fuzzprops_t new_fuzz_properties(mqtt_hostaddr_t ipaddr, mqtt_netport_t lile
     }
 }
 
-mqtt_nonyield_t close_outpdsc_unmap_resultsptr(mqtt_fuzzprops_s *fuzzprops, mqtt_fuzztestctx_s *context) {
-    close_file_desc(fuzzprops->outpdsc);
-    unmap_memorymap_shared(context->resultsmmap, sizeof(mqtt_result_t) * context->fuzzpackets.publishpacketsnum);
-}
 
 mqtt_peripherypackets_s read_periphery_packets(mqtt_filedsc_t fd) {
     mqtt_peripherypackets_s peripherypackets;
@@ -169,7 +178,7 @@ mqtt_publishpacks_t read_publish_packets(mqtt_filedsc_t fd, mqtt_packnum_t packe
 }
 
 mqtt_results_t create_memory_map_for_results(mqtt_filedsc_t outpdsc, mqtt_packnum_t packetsnum, mqtt_offset_t offset) {
-    mqtt_memsize_t allocsize = packetsnum * sizeof(mqtt_result_t);
+    mqtt_memsize_t allocsize = packetsnum * sizeof(mqtt_result_t) + 1;
     mqtt_memddr_t mmapped_results = memorymap_file_shared(outpdsc, allocsize, offset);
     CHECK_VAR(mapped_results, "Error allocating file to write results in\n");
     zero_out_memory(mapped_results, allocsize);
@@ -292,13 +301,48 @@ mqtt_nonyield_t free_all_packetbytes(mqtt_fuzzpacket_t *fuzzpacket) {
     }
 }
 
-mqtt_nonyield_t run_fuzztest_across_subprocs(mqtt_filepath_t inputfile, mqtt_filepath_t outfile, mqtt_hostaddr_t host, mqtt_netport_t port, mqtt_procnum_t procnum) {
-    mqtt_fuzzpackets_s fuzzpackets = read_fuzz_packets(inputfile);
-    mqtt_fuzzprops_s fuzzprops = new_fuzz_properties(host, port, outfile);
+
+mqtt_nonyield_t cleanup_subprocess_context_and_exit_subprocess(mqtt_fuzztestctx_s *context) {
+    unmap_memorymap_shared(context->resultsmmap, sizeof(mqtt_result_t) * context->fuzzpackets.publishpacketsnum);
+    close_broker_socket(context->socket);
+    exit_from_app_or_subproc(EXIT_SUCCESS);
+}
+
+mqtt_nonyield_t cleanup_mainprocess_and_print_message(mqtt_fuzzpackets_s *fuzzpackets, mqtt_fuzzprops_s *fuzzprops, mqtt_filepath_t outpfile) {
+    free_all_packetbytes(fuzzpacket);
+    close_file_desc(fuzzprops->outpdsc);
+    write_to_stdout("Results saved to: ");
+    write_to_stdout(outpfile);
+    write_to_stdout("\nSuccessfully fuzz-tested the broker, file descriptors and sockets have been closed, and all memory-mapped regions have been freed. exiting...\n");
+}
+
+mqtt_nonyield_t run_fuzztest_across_subprocs(mqtt_fuzztestglobprops_s *globalprops) {
+    mqtt_fuzzpackets_s fuzzpackets = read_fuzz_packets(globalprops->inpfile);
+    mqtt_fuzzprops_s fuzzprops = new_fuzz_properties(globalprops->hostaddr, globalprops->port, globalprops->outpfile);
+    mqtt_procid_t procid = 0;
+    mqtt_offset_t offset = 0;
+
+    for (int i = 0; i < globalprops->processnum; i++) {
+        procid = fork_process();
+
+        if (procid < 0) 
+        {
+            write_to_stderr_and_exit("Failed to fork a new subprocess\n");
+        } 
+        else if (procid == 0) 
+        {
+            mqtt_fuzztestctx_t context = create_new_fuzz_context(&fuzzpackets, &fuzzprops, offset);
+            ADD_TO_OFFSET;
+            fuzztest_roundabout(&context, globalprops->ackconnect);
+            cleanup_subprocess_context_and_exit_subprocess(&context);
+        }
+        else 
+        {
+            continue;
+        }
+    }
     
-        
-
-
+    clean_up_mainprocess_and_print_message(&fuzzpackets, &fuzzprops, globalprops->outpfile);
 }
 
 int main() {
