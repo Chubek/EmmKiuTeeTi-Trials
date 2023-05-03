@@ -18,6 +18,7 @@
 
 typedef void *mqtt_memaddr_t;
 typedef void mqtt_nonyield_t;
+typedef void mqtt_genobject_t;
 
 typedef signed char *mqtt_message_t;
 typedef signed char *mqtt_filepath_t;
@@ -43,8 +44,8 @@ typedef unsigned long mqtt_addrlen_t;
 typedef unsigned long mqtt_memsize_t;
 
 typedef struct MQTTFuzzPacket {
-    mqtt_packetlen_t packet_len;
-    mqtt_packetbytes_t packet_bytes;
+    mqtt_packetlen_t packetlen;
+    mqtt_packetbytes_t packetbytes;
 } mqtt_packet_s;
 
 typedef mqtt_packet_s *mqtt_publishpacks_t;
@@ -61,17 +62,19 @@ typedef struct MQTTFuzzTestNetConn {
     mqtt_ipv4_t ip;
     mqtt_netport_t port;
     mqtt_sockdsc_t socket;
-} mqtt_brokerconnection_s;
+} mqtt_brokerconn_s;
 
-typedef struct MQTTFuzzTest {
+typedef struct MQTTFuzzPackets {
     mqtt_packetnum_t publishpacketsnum;
     mqtt_publishpacks_t publishpackets;
     mqtt_peripherypackets_s peripherypackets;
     mqtt_memaddr_t resultsmmap;
-    mqtt_brokerconnection_s brokerconn;
+} mqtt_fuzzpackets_s;
+
+typedef struct MQTTFuzzContext {
+    mqtt_memaddr_t packtsmmap;
+    mqtt_brokerconn_s brokerconn;
 } mqtt_fuzztestctx_s;
-
-
 
 extern mqtt_yield_t read_from_file(mqtt_filedsc_t fd, mqtt_memaddr_t dst, mqtt_readlen_t readcount, mqtt_readlen_t bytecount);
 extern mqtt_yield_t write_to_file(mqtt_filedsc_t fd, mqtt_memaddr_t dst, mqtt_writelen_t readcount, mqtt_writelen_t bytecount);
@@ -88,9 +91,11 @@ extern mqtt_nonyield_t write_to_stderr_and_exit(mqtt_message_t message);
 extern mqtt_filedsc_t open_file_path(mqtt_filepath_t path, mqtt_flags_t flags);
 extern mqtt_memaddr_t memorymap_file_shared(mqtt_filedsc_t fd, mqtt_packetnum_t num, mqtt_offset_t offset);
 extern mqtt_memaddr_t allocate_memory(mqtt_memsize_t memsize);
+extern mqtt_memaddr_t store_object_in_shared_memory(mqtt_genobject_t object, mqtt_memsize_t num_long_words);
 extern mqtt_netport_t netport_to_netbyteorder(mqtt_netport_t port);
 extern mqtt_sockdsc_t open_socket_and_connect(mqtt_ipv4_t ipv4addr, mqtt_netport_t port);
 extern mqtt_packnum_t read_packet_num(mqtt_filedsc_t fd);
+
 
 mqtt_peripherypackets_s read_periphery_packets(mqtt_filedsc_t fd) {
     mqtt_peripherypackets_s peripherypackets;
@@ -145,20 +150,46 @@ mqtt_brokerconn_s create_socket_and_connect(mqtt_ipv4_t ipv4, mqtt_netport_t por
     };
 }
 
-mqtt_fuzztestctx_s new_fuzz_context(mqtt_filedsc_t inpdsc, mqtt_filedsc_t outdsc, mqtt_offset_t offset, mqtt_ipv4_t ipv4, mqtt_netport_t port) {
+mqtt_fuzzpackets_s create_fuzz_packets(mqtt_filedsc_t inpdsc, mqtt_filedsc_t outdsc, mqtt_offset_t offset) {
     mqtt_packnum_t publishpacketsnum = read_packet_num(inpdsc);
     mqtt_publishpacks_t publishpackets = read_publish_packets(inpdsc, publishpacketsnum);
     mqtt_peripherypackets_s peripherypackets = read_periphery_packets(inpdsc);
     mqtt_results_t resultsmmap = create_memory_map_for_results(outdsc, publishpacketsnum, offset);
-    mqtt_brokerconn_s brokerconn = create_socket_and_connect(ipv4, port);
 
-    return (mqtt_fuzztestctx_s){
+    return (mqtt_fuzzpackets_s){
         .publishpacketsnum = publishpacketsnum,
         .publishpackets = publishpackets,
         .peripherypackets = peripherypackets,
         .resultsmmap = resultsmmap,
-        .brokerconn = brokerconn,
     };
+}
+
+mqtt_fuzztestctx_s create_new_fuzz_context(mqtt_memaddr_t packets_mmap, , mqtt_ipv4_t ipv4, mqtt_netport_t port) {
+    mqtt_brokerconn_t brokerconn = create_socket_and_connect(ipv4, port);
+    return (mqtt_fuzztestctx_s) {
+        .packetsmmap = packets_mmap,
+        .brokerconn = brokerconn
+    };
+}
+
+mqtt_nonyield_t establish_connection_with_broker(mqtt_fuzztestctx_s context) {
+    mqtt_packet_s *connectpacket = &context->packetsmmap->peripherypackets.connectpacket;
+    mqtt_packet_s *connacpacket = &context->packetsmmap->peripherypackets.connackpacket;
+    mqtt_packet_s *disconnpacket = &context->packetsmmap->peripherypackets.disconnpacket;
+    mqtt_packet_s *pubackpacket = &context->packetsmmap->peripherypackets.pubackpacket;
+    mqtt_packet_s *connack_recv;
+    mqtt_packet_s *puback_recv;
+    zer_out_memory(connack_recv, sizeof(mqtt_packet_s));
+    zer_out_memory(puback_recv, sizeof(mqtt_packet_s));
+    
+    mqtt_publishpacks_t publishpackets = context->packetsmmap->publishpackets;
+    mqtt_sockdsc_t socket = context->brokerconn.socket;
+    mqtt_yield_t sendres = 0, receiveres = 0;
+    
+    sendres = send_packet_to_broker(socket, connectpacket);
+    CHECK_VAR(sendres, "Error sending a CONNECT packet\n");
+    receiveres = receive_packet_from_broker(socket, puback_recv);
+    
 }
 
 int main() {
