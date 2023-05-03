@@ -31,6 +31,7 @@
 	.global zero_out_memory
 	.global convert_hostaddr_to_netbyteorder
 	.global read_packet_num
+	.global store_object_in_shared_memory
 	.global read_single_packet_from_file
 	.global free_single_packet_bytes
 	.global allocate_memory
@@ -314,6 +315,7 @@
 		#undef ERRN_NDG
 		#undef ERRN_BSP
 		#undef RETR_SUC
+
 
 	read_single_packet_from_file:
 		#define FILE_DSC %rdi
